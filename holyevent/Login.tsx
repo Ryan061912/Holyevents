@@ -481,7 +481,7 @@ const Login = () => {
 
             <RegisterText>
               Don't have an account?{" "}
-              <RegisterLink href="/register">
+              <RegisterLink href="/registerpage">
                 Create an account
               </RegisterLink>
             </RegisterText>

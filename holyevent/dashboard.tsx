@@ -1,13 +1,54 @@
-"use client"
-import React, { useState } from 'react';
+"use client";
+import React, { useState, useEffect } from 'react';
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
+import { db } from "../firebaseconfig";
+
+// Types for Liturgical Events from Firebase
+interface LiturgicalEvent {
+  id: string;
+  name: string;
+  date: string;
+  time: string;
+  description: string;
+  location: string;
+  type: "mass" | "holy_day" | "feast" | "sacrament" | "procession";
+  capacity?: number;
+}
+
+interface DisplayEvent {
+  id: string | number;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  description: string;
+  type?: "mass" | "holy_day" | "feast" | "sacrament" | "procession";
+}
+
+interface AppointmentFormData {
+  name: string;
+  email: string;
+  phone: string;
+  date: string;
+  time: string;
+  purpose: string;
+  minister: string;
+  event: string;
+}
+
+interface Appointment extends AppointmentFormData {
+  id: number;
+  status: string;
+  createdAt: string;
+}
 
 const Dashboard = () => {
   const [activeButton, setActiveButton] = useState('home');
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [selectedEvent, setSelectedEvent] = useState<DisplayEvent | null>(null);
   const [startTour, setStartTour] = useState(false);
   const [currentTourLocation, setCurrentTourLocation] = useState('sanctuary');
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
-  const [appointmentForm, setAppointmentForm] = useState({
+  const [appointmentForm, setAppointmentForm] = useState<AppointmentFormData>({
     name: '',
     email: '',
     phone: '',
@@ -17,23 +58,196 @@ const Dashboard = () => {
     minister: '',
     event: ''
   });
-  const [appointments, setAppointments] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [liturgicalEvents, setLiturgicalEvents] = useState<LiturgicalEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  // Catholic Church event data - Sacraments and liturgical events
-  const events = [
-    { id: 1, title: 'Sunday Mass', date: 'Sept 15, 2024', time: '10:00 AM', location: 'Main Sanctuary', description: 'Join us for our weekly Eucharistic celebration. All are welcome to receive Holy Communion.' },
-    { id: 2, title: 'Baptism', date: 'Sept 17, 2024', time: '2:00 PM', location: 'Baptismal Font', description: 'Baptism ceremony for new members of our Catholic community.' },
-    { id: 3, title: 'Confession', date: 'Sept 20, 2024', time: '4:00 PM', location: 'Confessionals', description: 'Sacrament of Reconciliation available with our priests.' },
-    { id: 4, title: 'First Communion Preparation', date: 'Sept 22, 2024', time: '3:00 PM', location: 'Chapel', description: 'Preparation classes for children receiving First Holy Communion.' },
-    { id: 5, title: 'Confirmation', date: 'Sept 25, 2024', time: '6:00 PM', location: 'Main Sanctuary', description: 'Sacrament of Confirmation ceremony for youth.' },
-    { id: 6, title: 'Wedding', date: 'Sept 28, 2024', time: '2:00 PM', location: 'Main Sanctuary', description: 'Holy Matrimony ceremony.' },
-    { id: 7, title: 'Anointing of the Sick', date: 'Oct 1, 2024', time: '11:00 AM', location: 'Chapel', description: 'Sacrament for those who are ill or suffering.' },
-    { id: 8, title: 'Holy Hour', date: 'Oct 3, 2024', time: '7:00 PM', location: 'Main Sanctuary', description: 'Eucharistic Adoration and prayer before the Blessed Sacrament.' },
+  // Sample events (fallback if no Firebase events)
+  const sampleLiturgicalEvents: LiturgicalEvent[] = [
+    { 
+      id: "1", 
+      name: "Sunday Mass", 
+      date: "2024-09-15", 
+      time: "10:00", 
+      description: "Join us for our weekly Eucharistic celebration", 
+      location: "Main Sanctuary", 
+      type: "mass" 
+    },
+    { 
+      id: "2", 
+      name: "Baptism Ceremony", 
+      date: "2024-09-17", 
+      time: "14:00", 
+      description: "Baptism ceremony for new members", 
+      location: "Baptismal Font", 
+      type: "sacrament" 
+    },
+    { 
+      id: "3", 
+      name: "Confession", 
+      date: "2024-09-20", 
+      time: "16:00", 
+      description: "Sacrament of Reconciliation available with our priests", 
+      location: "Confessionals", 
+      type: "sacrament" 
+    }
   ];
-  
-  // Filter events to only show those in church locations
+
+  // Fetch liturgical events from Firebase
+  useEffect(() => {
+    const fetchLiturgicalEvents = async () => {
+      try {
+        setLoading(true);
+        console.log("🔄 Starting to fetch liturgical events...");
+        
+        if (!db) {
+          console.log("❌ Firebase not configured, using sample data");
+          setLiturgicalEvents(sampleLiturgicalEvents);
+          return;
+        }
+
+        // Fetch from Firebase
+        console.log("📡 Fetching from Firebase...");
+        const eventsSnapshot = await getDocs(collection(db, "liturgicalEvents"));
+        console.log("📊 Firebase response:", eventsSnapshot.size, "documents found");
+        
+        const eventsData: LiturgicalEvent[] = [];
+
+        eventsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log("📄 Document data:", data);
+          eventsData.push({
+            id: doc.id,
+            name: data.name || "",
+            date: data.date || "",
+            time: data.time || "",
+            description: data.description || "",
+            location: data.location || "",
+            type: data.type || "mass",
+            capacity: data.capacity || undefined,
+          } as LiturgicalEvent);
+        });
+
+        console.log("✅ Events data set:", eventsData);
+        
+        if (eventsData.length > 0) {
+          setLiturgicalEvents(eventsData);
+        } else {
+          console.log("📝 No Firebase events, using sample data");
+          setLiturgicalEvents(sampleLiturgicalEvents);
+        }
+        
+        // Set up real-time listener
+        const unsubscribe = onSnapshot(
+          collection(db, "liturgicalEvents"),
+          (snapshot) => {
+            console.log("🔄 Real-time update received:", snapshot.size, "documents");
+            const updatedEvents: LiturgicalEvent[] = [];
+            snapshot.forEach((doc) => {
+              const data = doc.data();
+              updatedEvents.push({
+                id: doc.id,
+                name: data.name || "",
+                date: data.date || "",
+                time: data.time || "",
+                description: data.description || "",
+                location: data.location || "",
+                type: data.type || "mass",
+                capacity: data.capacity || undefined,
+              } as LiturgicalEvent);
+            });
+            console.log("🔄 Updated events:", updatedEvents);
+            setLiturgicalEvents(updatedEvents.length > 0 ? updatedEvents : sampleLiturgicalEvents);
+          },
+          (error) => {
+            console.error("❌ Error in liturgical events listener:", error);
+          }
+        );
+
+        return () => {
+          console.log("🧹 Cleaning up Firebase listener");
+          unsubscribe();
+        };
+      } catch (error) {
+        console.error("❌ Error fetching liturgical events:", error);
+        setLiturgicalEvents(sampleLiturgicalEvents);
+      } finally {
+        console.log("🏁 Finished loading, setting loading to false");
+        setLoading(false);
+      }
+    };
+
+    fetchLiturgicalEvents();
+  }, []);
+
+  // Format date for display
+  const formatDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", { 
+        weekday: "short", 
+        month: "short", 
+        day: "numeric",
+        year: "numeric"
+      });
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  // Format time for display
+  const formatTime = (timeString: string): string => {
+    try {
+      const [hours, minutes] = timeString.split(':');
+      const hour = parseInt(hours);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:${minutes} ${ampm}`;
+    } catch (error) {
+      return timeString;
+    }
+  };
+
+  // Get event type color
+  const getEventTypeColor = (type: string) => {
+    switch (type) {
+      case "mass":
+        return "bg-blue-100 text-blue-800 border border-blue-300";
+      case "holy_day":
+        return "bg-purple-100 text-purple-800 border border-purple-300";
+      case "feast":
+        return "bg-yellow-100 text-yellow-800 border border-yellow-300";
+      case "sacrament":
+        return "bg-pink-100 text-pink-800 border border-pink-300";
+      case "procession":
+        return "bg-green-100 text-green-800 border border-green-300";
+      default:
+        return "bg-gray-100 text-gray-800 border border-gray-300";
+    }
+  };
+
+  // Convert liturgical events to display format
+  const displayEvents: DisplayEvent[] = React.useMemo(() => {
+    console.log("🔄 Processing displayEvents, liturgicalEvents:", liturgicalEvents.length);
+    
+    const eventsToUse = liturgicalEvents.length > 0 ? liturgicalEvents : sampleLiturgicalEvents;
+    
+    const converted = eventsToUse.map(event => ({
+      id: event.id,
+      title: event.name,
+      date: formatDate(event.date),
+      time: formatTime(event.time),
+      location: event.location,
+      description: event.description,
+      type: event.type
+    }));
+    
+    console.log("✅ Converted events:", converted.length);
+    return converted;
+  }, [liturgicalEvents]);
+
   const churchLocations = ['Main Sanctuary', 'Chapel', 'Baptismal Font', 'Confessionals'];
-  const churchEvents = events.filter(event => churchLocations.includes(event.location));
+  const churchEvents = displayEvents.filter(event => churchLocations.includes(event.location));
   
   // Church ministries
   const ministries = [
@@ -75,7 +289,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleViewDetails = (event: any) => {
+  const handleViewDetails = (event: DisplayEvent) => {
     setSelectedEvent(event);
   };
 
@@ -96,7 +310,7 @@ const Dashboard = () => {
     setCurrentTourLocation(location);
   };
 
-  const handleOpenAppointmentModal = (event: any = null) => {
+  const handleOpenAppointmentModal = (event: DisplayEvent | null = null) => {
     setShowAppointmentModal(true);
     if (event) {
       setAppointmentForm(prev => ({
@@ -132,7 +346,7 @@ const Dashboard = () => {
 
   const handleSubmitAppointment = (e: React.FormEvent) => {
     e.preventDefault();
-    const newAppointment = {
+    const newAppointment: Appointment = {
       id: Date.now(),
       ...appointmentForm,
       status: 'Pending',
@@ -183,6 +397,9 @@ const Dashboard = () => {
             >
               <span className="icon">📅</span>
               <span>Liturgical Events</span>
+              {liturgicalEvents.length > 0 && (
+                <span className="event-badge">{liturgicalEvents.length}</span>
+              )}
             </button>
             
             <button 
@@ -221,6 +438,11 @@ const Dashboard = () => {
             <div className="bible-verse">
               "For where two or three gather in my name, there am I with them." - Matthew 18:20
             </div>
+            {liturgicalEvents.length > 0 && (
+              <div className="events-count">
+                <small>{liturgicalEvents.length} events from admin</small>
+              </div>
+            )}
           </div>
         </nav>
 
@@ -231,14 +453,28 @@ const Dashboard = () => {
               <div className="welcome-banner">
                 <h2>Welcome to Immaculate Conception Catholic Church</h2>
                 <p>"A community of faith, worship, and service in the Catholic tradition"</p>
+                {liturgicalEvents.length > 0 ? (
+                  <div className="admin-events-notice">
+                    📢 <strong>Real-time updates:</strong> {liturgicalEvents.length} liturgical events loaded from admin
+                  </div>
+                ) : (
+                  <div className="sample-events-notice">
+                    📝 <strong>Sample data:</strong> Using sample events for demonstration
+                  </div>
+                )}
               </div>
               
               <div className="stats-cards">
                 <div className="stat-card">
                   <div className="stat-icon">📅</div>
                   <div className="stat-info">
-                    <h3>Upcoming Masses & Sacraments</h3>
+                    <h3>Upcoming Events</h3>
                     <span className="stat-number">{churchEvents.length}</span>
+                    {liturgicalEvents.length > 0 ? (
+                      <small className="real-time-badge">Live from Admin</small>
+                    ) : (
+                      <small className="sample-badge">Sample Data</small>
+                    )}
                   </div>
                 </div>
                 <div className="stat-card">
@@ -285,27 +521,50 @@ const Dashboard = () => {
                   {churchEvents.slice(0, 3).map(event => (
                     <div key={event.id} className="event-preview-card">
                       <div className="event-date-badge">
-                        <span className="event-day">{event.date.split(' ')[1].replace(',', '')}</span>
-                        <span className="event-month">{event.date.split(' ')[0]}</span>
+                        <span className="event-day">{event.date.split(' ')[2]?.replace(',', '') || '15'}</span>
+                        <span className="event-month">{event.date.split(' ')[1] || 'Sept'}</span>
                       </div>
                       <div className="event-preview-info">
                         <h4>{event.title}</h4>
                         <p>{event.time} • {event.location}</p>
+                        {event.type && (
+                          <span className={`event-type-badge ${getEventTypeColor(event.type)}`}>
+                            {event.type.replace('_', ' ')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
+                {churchEvents.length === 0 && !loading && (
+                  <div className="no-events-message">
+                    <p>No events scheduled yet. Check back later for updates!</p>
+                  </div>
+                )}
               </div>
 
               <div className="verse-of-day">
                 <div className="verse-header">
                   <h3>Verse of the Day</h3>
-                  <span className="verse-date">September 5, 2024</span>
+                  <span className="verse-date">{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 </div>
                 <blockquote>
                   "For by grace you have been saved through faith. And this is not your own doing; it is the gift of God."
                   <footer>- Ephesians 2:8</footer>
                 </blockquote>
+              </div>
+
+              {/* Debug Info - Remove in production */}
+              <div className="debug-info">
+                <h4>Debug Info:</h4>
+                <p>Loading: {loading.toString()}</p>
+                <p>Liturgical Events Count: {liturgicalEvents.length}</p>
+                <p>Display Events Count: {displayEvents.length}</p>
+                <p>Church Events Count: {churchEvents.length}</p>
+                <details>
+                  <summary>Liturgical Events Data</summary>
+                  <pre>{JSON.stringify(liturgicalEvents, null, 2)}</pre>
+                </details>
               </div>
             </div>
           )}
@@ -315,45 +574,80 @@ const Dashboard = () => {
               <div className="section-header">
                 <h2>Catholic Liturgical Events & Sacraments</h2>
                 <p>Holy Mass and Sacraments celebrated in our church</p>
-              </div>
-              <div className="events-list">
-                {churchEvents.map(event => (
-                  <div key={event.id} className="event-card">
-                    <div className="event-date-side">
-                      <div className="event-date-badge">
-                        <span className="event-day">{event.date.split(' ')[1].replace(',', '')}</span>
-                        <span className="event-month">{event.date.split(' ')[0]}</span>
-                      </div>
-                    </div>
-                    <div className="event-content">
-                      <div className="event-header">
-                        <h3>{event.title}</h3>
-                        <span className="event-time">{event.time}</span>
-                      </div>
-                      <p className="event-location">📍 {event.location}</p>
-                      <p className="event-description">{event.description}</p>
-                      <div className="event-actions">
-                        <button 
-                          className="action-btn outline" 
-                          onClick={() => handleViewDetails(event)}
-                        >
-                          More Details
-                        </button>
-                        {(event.title.includes('Baptism') || event.title.includes('Confession') || 
-                          event.title.includes('Communion') || event.title.includes('Confirmation') ||
-                          event.title.includes('Wedding') || event.title.includes('Anointing')) && (
-                          <button 
-                            className="action-btn primary" 
-                            onClick={() => handleOpenAppointmentModal(event)}
-                          >
-                            Schedule Sacrament
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                {liturgicalEvents.length > 0 ? (
+                  <div className="admin-events-indicator">
+                    ✅ Showing {liturgicalEvents.length} events from admin dashboard
                   </div>
-                ))}
+                ) : (
+                  <div className="sample-events-indicator">
+                    📝 Showing sample events for demonstration
+                  </div>
+                )}
               </div>
+              
+              {loading ? (
+                <div className="loading-state">
+                  <div className="loading-spinner"></div>
+                  <p>Loading events from admin...</p>
+                  <div className="loading-details">
+                    <small>Checking Firebase for liturgical events...</small>
+                  </div>
+                </div>
+              ) : (
+                <div className="events-list">
+                  {churchEvents.map(event => (
+                    <div key={event.id} className="event-card">
+                      <div className="event-date-side">
+                        <div className="event-date-badge">
+                          <span className="event-day">{event.date.split(' ')[2]?.replace(',', '') || '15'}</span>
+                          <span className="event-month">{event.date.split(' ')[1] || 'Sept'}</span>
+                        </div>
+                      </div>
+                      <div className="event-content">
+                        <div className="event-header">
+                          <h3>{event.title}</h3>
+                          <div className="event-time-type">
+                            <span className="event-time">{event.time}</span>
+                            {event.type && (
+                              <span className={`event-type-tag ${getEventTypeColor(event.type)}`}>
+                                {event.type.replace('_', ' ').toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="event-location">📍 {event.location}</p>
+                        <p className="event-description">{event.description}</p>
+                        <div className="event-actions">
+                          <button 
+                            className="action-btn outline" 
+                            onClick={() => handleViewDetails(event)}
+                          >
+                            More Details
+                          </button>
+                          {(event.title.includes('Baptism') || event.title.includes('Confession') || 
+                            event.title.includes('Communion') || event.title.includes('Confirmation') ||
+                            event.title.includes('Wedding') || event.title.includes('Anointing')) && (
+                            <button 
+                              className="action-btn primary" 
+                              onClick={() => handleOpenAppointmentModal(event)}
+                            >
+                              Schedule Sacrament
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {churchEvents.length === 0 && !loading && (
+                <div className="empty-events-state">
+                  <div className="empty-icon">⛪</div>
+                  <h3>No Liturgical Events Scheduled</h3>
+                  <p>Check back later for upcoming masses and sacraments.</p>
+                </div>
+              )}
               
               {selectedEvent && (
                 <div className="modal-overlay">
@@ -375,6 +669,16 @@ const Dashboard = () => {
                         <span className="detail-label">Location:</span>
                         <span className="detail-value">{selectedEvent.location}</span>
                       </div>
+                      {selectedEvent.type && (
+                        <div className="event-detail-item">
+                          <span className="detail-label">Event Type:</span>
+                          <span className="detail-value">
+                            <span className={`event-type-badge ${getEventTypeColor(selectedEvent.type)}`}>
+                              {selectedEvent.type.replace('_', ' ').toUpperCase()}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       <div className="event-detail-item">
                         <span className="detail-label">Description:</span>
                         <p className="detail-value">{selectedEvent.description}</p>
@@ -400,23 +704,15 @@ const Dashboard = () => {
             <div className="content-section">
               <div className="section-header">
                 <h2>Church Ministries</h2>
-                <p>Get involved in our parish community by joining one of our ministries.</p>
+                <p>Join our community in serving and growing in faith</p>
               </div>
-              
               <div className="ministries-grid">
                 {ministries.map(ministry => (
                   <div key={ministry.id} className="ministry-card">
-                    <div className="ministry-icon">⛪</div>
                     <h3>{ministry.title}</h3>
-                    <div className="ministry-leader">
-                      <span className="label">Leader:</span>
-                      <span>{ministry.leader}</span>
-                    </div>
-                    <div className="ministry-time">
-                      <span className="label">Meeting Time:</span>
-                      <span>{ministry.time}</span>
-                    </div>
-                    <p className="ministry-desc">{ministry.description}</p>
+                    <p className="ministry-leader">Leader: {ministry.leader}</p>
+                    <p className="ministry-time">⏰ {ministry.time}</p>
+                    <p className="ministry-description">{ministry.description}</p>
                     <button className="action-btn primary">Join Ministry</button>
                   </div>
                 ))}
@@ -428,72 +724,34 @@ const Dashboard = () => {
             <div className="content-section">
               <div className="section-header">
                 <h2>Sacrament Appointments</h2>
-                <p>Request appointments for sacraments or meetings with our clergy.</p>
+                <p>Schedule appointments for sacraments and spiritual guidance</p>
               </div>
               
               <div className="appointment-actions">
-                <button className="action-btn large primary" onClick={handleOpenAppointmentModal}>
-                  <span className="btn-icon">➕</span>
-                  Request New Appointment
+                <button 
+                  className="action-btn large primary" 
+                  onClick={() => handleOpenAppointmentModal()}
+                >
+                  📋 Request New Appointment
                 </button>
               </div>
-              
-              {appointments.length > 0 ? (
-                <div className="appointments-container">
-                  <h3 className="appointments-title">Your Appointment Requests</h3>
-                  <div className="appointments-grid">
-                    {appointments.map(appointment => (
-                      <div key={appointment.id} className="appointment-card">
-                        <div className="appointment-card-header">
-                          <div className="appointment-minister">
-                            <span className="minister-icon">🙏</span>
-                            <div>
-                              <h4>{appointment.minister}</h4>
-                              <span className="minister-role">
-                                {ministers.find(m => m.name === appointment.minister)?.role}
-                              </span>
-                            </div>
-                          </div>
-                          <span className={`status-badge ${appointment.status.toLowerCase()}`}>
-                            {appointment.status}
-                          </span>
-                        </div>
-                        
-                        <div className="appointment-card-body">
-                          <div className="appointment-detail">
-                            <span className="detail-label">Sacrament:</span>
-                            <span className="detail-value">{appointment.event}</span>
-                          </div>
-                          
-                          <div className="appointment-detail">
-                            <span className="detail-label">Date & Time:</span>
-                            <span className="detail-value">{appointment.date} at {appointment.time}</span>
-                          </div>
-                          
-                          <div className="appointment-detail">
-                            <span className="detail-label">Purpose:</span>
-                            <span className="detail-value">{appointment.purpose}</span>
-                          </div>
-                          
-                          <div className="appointment-detail">
-                            <span className="detail-label">Requested:</span>
-                            <span className="detail-value">{appointment.createdAt}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="appointment-card-footer">
-                          <button className="action-btn small outline">View Details</button>
-                          <button className="action-btn small primary">Reschedule</button>
-                        </div>
+
+              {appointments.length > 0 && (
+                <div className="appointments-list">
+                  <h3>Your Appointments</h3>
+                  {appointments.map(appointment => (
+                    <div key={appointment.id} className="appointment-card">
+                      <div className="appointment-header">
+                        <h4>{appointment.purpose}</h4>
+                        <span className={`status-badge ${appointment.status.toLowerCase()}`}>
+                          {appointment.status}
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">📋</div>
-                  <h3>No Appointments Yet</h3>
-                  <p>You haven't scheduled any sacrament appointments yet. Click the button above to request one.</p>
+                      <p><strong>Minister:</strong> {appointment.minister}</p>
+                      <p><strong>Date:</strong> {appointment.date} at {appointment.time}</p>
+                      <p><strong>Event:</strong> {appointment.event}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -503,61 +761,26 @@ const Dashboard = () => {
             <div className="content-section">
               <div className="section-header">
                 <h2>About Our Parish</h2>
-                <p>Immaculate Conception Catholic Church has been serving the faithful since 1925.</p>
+                <p>Immaculate Conception Catholic Church - A community of faith since 1925</p>
               </div>
-              
               <div className="about-content">
                 <div className="about-section">
-                  <h3>Our History</h3>
-                  <p>Founded by the Dominican order, our parish has been a cornerstone of Catholic faith in this community for nearly a century. We continue the rich tradition of Catholic worship and education.</p>
+                  <h3>Our Mission</h3>
+                  <p>To proclaim the Gospel of Jesus Christ, celebrate the Sacraments, and serve our community in love and charity.</p>
                 </div>
-                
                 <div className="about-section">
-                  <h3>Pastoral Team</h3>
-                  <div className="team-grid">
-                    <div className="team-member-card">
-                      <div className="member-photo">🙏</div>
-                      <h4>Fr. Benjamin Cruz</h4>
-                      <p>Parish Priest</p>
-                    </div>
-                    <div className="team-member-card">
-                      <div className="member-photo">🙏</div>
-                      <h4>Fr. Michael Lim</h4>
-                      <p>Associate Pastor</p>
-                    </div>
-                    <div className="team-member-card">
-                      <div className="member-photo">🙏</div>
-                      <h4>Deacon John Santos</h4>
-                      <p>Permanent Deacon</p>
-                    </div>
-                    <div className="team-member-card">
-                      <div className="member-photo">🙏</div>
-                      <h4>Sr. Maria Theresa</h4>
-                      <p>Pastoral Associate</p>
-                    </div>
-                  </div>
+                  <h3>Mass Schedule</h3>
+                  <ul>
+                    <li>Sunday: 7:00 AM, 9:00 AM, 11:00 AM, 5:00 PM</li>
+                    <li>Weekdays: 6:30 AM, 8:00 AM</li>
+                    <li>Saturday: 8:00 AM, 4:00 PM (Vigil)</li>
+                  </ul>
                 </div>
-                
                 <div className="about-section">
-                  <h3>Service Times</h3>
-                  <div className="service-times-grid">
-                    <div className="service-time-card">
-                      <h4>Sunday Mass</h4>
-                      <p>7:30 AM, 9:00 AM, 11:00 AM, 5:00 PM</p>
-                    </div>
-                    <div className="service-time-card">
-                      <h4>Weekday Mass</h4>
-                      <p>6:30 AM, 8:00 AM</p>
-                    </div>
-                    <div className="service-time-card">
-                      <h4>Saturday Vigil</h4>
-                      <p>4:00 PM</p>
-                    </div>
-                    <div className="service-time-card">
-                      <h4>Confession</h4>
-                      <p>Saturday 3:00-3:45 PM or by appointment</p>
-                    </div>
-                  </div>
+                  <h3>Contact Information</h3>
+                  <p>📍 123 Church Street, City, State 12345</p>
+                  <p>📞 (555) 123-4567</p>
+                  <p>📧 info@immaculateconception.org</p>
                 </div>
               </div>
             </div>
@@ -566,70 +789,40 @@ const Dashboard = () => {
           {activeButton === 'tour' && (
             <div className="content-section">
               <div className="section-header">
-                <h2>Church Virtual Tour</h2>
-                <p>Explore our sacred spaces from anywhere</p>
+                <h2>Virtual Church Tour</h2>
+                <p>Explore our beautiful church and its sacred spaces</p>
               </div>
               
               {!startTour ? (
-                <div className="tour-intro">
-                  <div className="tour-placeholder-image">
-                    <div className="church-image">⛪</div>
+                <div className="tour-start">
+                  <div className="tour-welcome">
+                    <h3>Welcome to Our Church</h3>
+                    <p>Take a virtual tour of our sacred spaces and learn about their significance in our Catholic faith.</p>
+                    <button className="action-btn large primary" onClick={handleStartTour}>
+                      🚶 Start Virtual Tour
+                    </button>
                   </div>
-                  <p>Take a virtual tour of our sacred spaces. Learn about the different areas of our church used for worship and sacraments.</p>
-                  <button className="action-btn large primary" onClick={handleStartTour}>
-                    Start Virtual Tour
-                  </button>
                 </div>
               ) : (
-                <div className="virtual-tour">
-                  <div className="tour-view">
-                    <h3>{tourLocations[currentTourLocation as keyof typeof tourLocations]?.name}</h3>
-                    <div className="tour-placeholder">
-                      <div className="location-image">
-                        {currentTourLocation === 'sanctuary' && '⛪'}
-                        {currentTourLocation === 'chapel' && '🙏'}
-                        {currentTourLocation === 'baptismal' && '💧'}
-                        {currentTourLocation === 'confessionals' && '✝️'}
-                        {currentTourLocation === 'garden' && '🌿'}
-                      </div>
-                      <p>{tourLocations[currentTourLocation as keyof typeof tourLocations]?.description}</p>
-                    </div>
-                    <button className="action-btn outline" onClick={handleEndTour}>
-                      End Tour
-                    </button>
+                <div className="tour-active">
+                  <div className="tour-location">
+                    <h3>{tourLocations[currentTourLocation as keyof typeof tourLocations].name}</h3>
+                    <p>{tourLocations[currentTourLocation as keyof typeof tourLocations].description}</p>
                   </div>
-                  <div className="tour-controls">
-                    <button 
-                      className={`control-btn ${currentTourLocation === 'sanctuary' ? 'active' : ''}`}
-                      onClick={() => handleNavigateTour('sanctuary')}
-                    >
-                      Sanctuary
-                    </button>
-                    <button 
-                      className={`control-btn ${currentTourLocation === 'chapel' ? 'active' : ''}`}
-                      onClick={() => handleNavigateTour('chapel')}
-                    >
-                      Chapel
-                    </button>
-                    <button 
-                      className={`control-btn ${currentTourLocation === 'baptismal' ? 'active' : ''}`}
-                      onClick={() => handleNavigateTour('baptismal')}
-                    >
-                      Baptismal Font
-                    </button>
-                    <button 
-                      className={`control-btn ${currentTourLocation === 'confessionals' ? 'active' : ''}`}
-                      onClick={() => handleNavigateTour('confessionals')}
-                    >
-                      Confessionals
-                    </button>
-                    <button 
-                      className={`control-btn ${currentTourLocation === 'garden' ? 'active' : ''}`}
-                      onClick={() => handleNavigateTour('garden')}
-                    >
-                      Mary's Garden
-                    </button>
+                  <div className="tour-navigation">
+                    {Object.keys(tourLocations).map(location => (
+                      <button
+                        key={location}
+                        className={`tour-nav-btn ${currentTourLocation === location ? 'active' : ''}`}
+                        onClick={() => handleNavigateTour(location)}
+                      >
+                        {tourLocations[location as keyof typeof tourLocations].name}
+                      </button>
+                    ))}
                   </div>
+                  <button className="action-btn outline" onClick={handleEndTour}>
+                    End Tour
+                  </button>
                 </div>
               )}
             </div>
@@ -640,150 +833,104 @@ const Dashboard = () => {
       {/* Appointment Modal */}
       {showAppointmentModal && (
         <div className="modal-overlay">
-          <div className="modal-content large">
+          <div className="modal-content">
             <div className="modal-header">
               <h3>Schedule Sacrament Appointment</h3>
               <button className="close-btn" onClick={handleCloseAppointmentModal}>✕</button>
             </div>
-            <form onSubmit={handleSubmitAppointment} className="appointment-form">
-              <div className="form-section">
-                <h4>Personal Information</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="name">Full Name *</label>
-                    <input
-                      type="text"
-                      id="name"
-                      name="name"
-                      value={appointmentForm.name}
-                      onChange={handleAppointmentFormChange}
-                      required
-                      placeholder="Enter your full name"
-                    />
-                  </div>
-                </div>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="email">Email Address *</label>
-                    <input
-                      type="email"
-                      id="email"
-                      name="email"
-                      value={appointmentForm.email}
-                      onChange={handleAppointmentFormChange}
-                      required
-                      placeholder="your.email@example.com"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label htmlFor="phone">Phone Number *</label>
-                    <input
-                      type="tel"
-                      id="phone"
-                      name="phone"
-                      value={appointmentForm.phone}
-                      onChange={handleAppointmentFormChange}
-                      required
-                      placeholder="(555) 123-4567"
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="form-section">
-                <h4>Appointment Details</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="event">Sacrament or Event *</label>
-                    <select
-                      id="event"
-                      name="event"
-                      value={appointmentForm.event}
-                      onChange={handleAppointmentFormChange}
-                      required
-                    >
-                      <option value="">Select a sacrament</option>
-                      <option value="Baptism">Baptism</option>
-                      <option value="Confession">Confession</option>
-                      <option value="First Communion">First Communion</option>
-                      <option value="Confirmation">Confirmation</option>
-                      <option value="Wedding">Wedding</option>
-                      <option value="Anointing of the Sick">Anointing of the Sick</option>
-                      <option value="General Appointment">General Appointment</option>
-                    </select>
-                  </div>
-                  
-                  <div className="form-group">
-                    <label htmlFor="minister">Preferred Clergy *</label>
-                    <select
-                      id="minister"
-                      name="minister"
-                      value={appointmentForm.minister}
-                      onChange={handleAppointmentFormChange}
-                      required
-                    >
-                      <option value="">Select a clergy member</option>
-                      {ministers.map(minister => (
-                        <option key={minister.id} value={minister.name}>
-                          {minister.name} ({minister.role})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="date">Preferred Date *</label>
-                    <input
-                      type="date"
-                      id="date"
-                      name="date"
-                      value={appointmentForm.date}
-                      onChange={handleAppointmentFormChange}
-                      required
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label htmlFor="time">Preferred Time *</label>
-                    <input
-                      type="time"
-                      id="time"
-                      name="time"
-                      value={appointmentForm.time}
-                      onChange={handleAppointmentFormChange}
-                      required
-                    />
-                  </div>
-                </div>
-                
+            <form onSubmit={handleSubmitAppointment}>
+              <div className="modal-body">
                 <div className="form-group">
-                  <label htmlFor="purpose">Purpose of Appointment *</label>
+                  <label>Full Name *</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={appointmentForm.name}
+                    onChange={handleAppointmentFormChange}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Email *</label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={appointmentForm.email}
+                    onChange={handleAppointmentFormChange}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Phone</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={appointmentForm.phone}
+                    onChange={handleAppointmentFormChange}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Preferred Date *</label>
+                  <input
+                    type="date"
+                    name="date"
+                    value={appointmentForm.date}
+                    onChange={handleAppointmentFormChange}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Preferred Time *</label>
+                  <input
+                    type="time"
+                    name="time"
+                    value={appointmentForm.time}
+                    onChange={handleAppointmentFormChange}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Purpose *</label>
                   <textarea
-                    id="purpose"
                     name="purpose"
                     value={appointmentForm.purpose}
                     onChange={handleAppointmentFormChange}
-                    rows={4}
                     required
-                    placeholder="Please provide details about the sacrament you're requesting or the reason for your appointment"
-                  ></textarea>
+                    rows={3}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Preferred Minister</label>
+                  <select
+                    name="minister"
+                    value={appointmentForm.minister}
+                    onChange={handleAppointmentFormChange}
+                  >
+                    <option value="">Select a minister</option>
+                    {ministers.map(minister => (
+                      <option key={minister.id} value={minister.name}>
+                        {minister.name} - {minister.role}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Related Event</label>
+                  <input
+                    type="text"
+                    name="event"
+                    value={appointmentForm.event}
+                    onChange={handleAppointmentFormChange}
+                  />
                 </div>
               </div>
-              
-              <div className="form-footer">
-                <p className="form-note">* Required fields. We will contact you within 24-48 hours to confirm your appointment.</p>
-                <div className="modal-footer">
-                  <button type="button" className="action-btn outline" onClick={handleCloseAppointmentModal}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="action-btn primary">
-                    Submit Request
-                  </button>
-                </div>
+              <div className="modal-footer">
+                <button type="button" className="action-btn outline" onClick={handleCloseAppointmentModal}>
+                  Cancel
+                </button>
+                <button type="submit" className="action-btn primary">
+                  Submit Request
+                </button>
               </div>
             </form>
           </div>
@@ -791,13 +938,171 @@ const Dashboard = () => {
       )}
 
       <style jsx>{`
+      
         .dashboard-container {
           min-height: 100vh;
           background: linear-gradient(135deg, #f8f6f0 0%, #f1ece0 100%);
           font-family: 'Georgia', serif;
           color: #333;
         }
+  
+        .event-badge {
+          background: #e74c3c;
+          color: white;
+          border-radius: 50%;
+          width: 20px;
+          height: 20px;
+          font-size: 0.7rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-left: auto;
+        }
         
+        .admin-events-notice {
+          background: rgba(52, 152, 219, 0.1);
+          border: 1px solid #3498db;
+          border-radius: 8px;
+          padding: 0.5rem 1rem;
+          margin-top: 1rem;
+          font-size: 0.9rem;
+          color: #2c3e50;
+        }
+        
+        .sample-events-notice {
+          background: rgba(243, 156, 18, 0.1);
+          border: 1px solid #f39c12;
+          border-radius: 8px;
+          padding: 0.5rem 1rem;
+          margin-top: 1rem;
+          font-size: 0.9rem;
+          color: #2c3e50;
+        }
+        
+        .real-time-badge {
+          background: #27ae60;
+          color: white;
+          padding: 0.2rem 0.5rem;
+          border-radius: 12px;
+          font-size: 0.7rem;
+          margin-top: 0.5rem;
+          display: inline-block;
+        }
+        
+        .sample-badge {
+          background: #f39c12;
+          color: white;
+          padding: 0.2rem 0.5rem;
+          border-radius: 12px;
+          font-size: 0.7rem;
+          margin-top: 0.5rem;
+          display: inline-block;
+        }
+        
+        .admin-events-indicator {
+          background: #d4edda;
+          color: #155724;
+          border: 1px solid #c3e6cb;
+          border-radius: 6px;
+          padding: 0.5rem 1rem;
+          margin-top: 0.5rem;
+          font-size: 0.9rem;
+        }
+        
+        .sample-events-indicator {
+          background: #fff3cd;
+          color: #856404;
+          border: 1px solid #ffeaa7;
+          border-radius: 6px;
+          padding: 0.5rem 1rem;
+          margin-top: 0.5rem;
+          font-size: 0.9rem;
+        }
+        
+        .loading-state {
+          text-align: center;
+          padding: 3rem;
+          background: white;
+          border-radius: 12px;
+          border: 1px solid #e8e5dd;
+        }
+        
+        .loading-spinner {
+          border: 3px solid #f3f3f3;
+          border-top: 3px solid #3498db;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 1rem;
+        }
+        
+        .loading-details {
+          margin-top: 1rem;
+          color: #666;
+          font-size: 0.9rem;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .empty-events-state {
+          text-align: center;
+          padding: 3rem;
+          background: white;
+          border-radius: 12px;
+          border: 1px solid #e8e5dd;
+        }
+        
+        .empty-events-state .empty-icon {
+          font-size: 4rem;
+          margin-bottom: 1rem;
+          opacity: 0.5;
+        }
+        
+        .event-type-badge, .event-type-tag {
+          padding: 0.3rem 0.8rem;
+          border-radius: 20px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          display: inline-block;
+          margin-left: 0.5rem;
+        }
+        
+        .event-time-type {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        
+        .events-count {
+          text-align: center;
+          margin-top: 0.5rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .no-events-message {
+          text-align: center;
+          padding: 1rem;
+          color: #666;
+          font-style: italic;
+        }
+
+        .debug-info {
+          background: #f8f9fa;
+          border: 1px solid #e9ecef;
+          border-radius: 6px;
+          padding: 1rem;
+          margin: 1rem 0;
+          font-family: monospace;
+          font-size: 0.8rem;
+        }
+
+        /* Rest of the existing CSS styles remain exactly the same */
         .dashboard-header {
           background: linear-gradient(135deg, #2c3e50 0%, #4a6b8a 100%);
           color: white;
@@ -897,6 +1202,7 @@ const Dashboard = () => {
           color: rgba(255, 255, 255, 0.8);
           font-size: 1rem;
           border-left: 4px solid transparent;
+          position: relative;
         }
         
         .nav-btn:hover {
@@ -945,9 +1251,7 @@ const Dashboard = () => {
           border: 1px solid #e8e5dd;
         }
         
-        
-        
-        .-banner {
+        .welcome-banner {
           text-align: center;
           padding: 2rem;
           background: linear-gradient(135deg, #f8f6f0 0%, #e8e5dd 100%);
@@ -1299,10 +1603,11 @@ const Dashboard = () => {
           display: flex;
           gap: 0.75rem;
         }
-        
+
+        /* Ministries Styles */
         .ministries-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
           gap: 1.5rem;
         }
         
@@ -1310,20 +1615,8 @@ const Dashboard = () => {
           background: white;
           border-radius: 12px;
           padding: 1.5rem;
-          text-align: center;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
           border: 1px solid #e8e5dd;
-          transition: transform 0.3s ease;
-        }
-        
-        .ministry-card:hover {
-          transform: translateY(-5px);
-        }
-        
-        .ministry-icon {
-          font-size: 2.5rem;
-          margin-bottom: 1rem;
-          color: #8b5a2b;
         }
         
         .ministry-card h3 {
@@ -1331,360 +1624,160 @@ const Dashboard = () => {
           margin-bottom: 1rem;
         }
         
-        .ministry-leader, .ministry-time {
-          display: flex;
-          justify-content: center;
-          gap: 0.5rem;
-          margin: 0.5rem 0;
-          font-size: 0.9rem;
-        }
-        
-        .label {
+        .ministry-leader {
+          color: #8b5a2b;
           font-weight: 600;
+          margin-bottom: 0.5rem;
+        }
+        
+        .ministry-time {
           color: #5d6d7e;
+          margin-bottom: 1rem;
         }
         
-        .ministry-desc {
+        .ministry-description {
           color: #333;
-          margin: 1rem 0;
           line-height: 1.5;
-        }
-        
-        /* Appointment Section Styles */
-        .appointment-actions {
-          margin: 2.5rem 0;
-          text-align: center;
-        }
-        
-        .appointments-container {
-          margin-top: 2rem;
-        }
-        
-        .appointments-title {
-          color: #2c3e50;
           margin-bottom: 1.5rem;
-          padding-bottom: 0.5rem;
-          border-bottom: 2px solid #e8e5dd;
+        }
+
+        /* Appointments Styles */
+        .appointment-actions {
+          text-align: center;
+          margin-bottom: 2rem;
         }
         
-        .appointments-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-          gap: 1.5rem;
+        .appointments-list {
+          margin-top: 2rem;
         }
         
         .appointment-card {
           background: white;
           border-radius: 12px;
           padding: 1.5rem;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+          margin-bottom: 1rem;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           border: 1px solid #e8e5dd;
-          transition: transform 0.3s ease;
         }
         
-        .appointment-card:hover {
-          transform: translateY(-5px);
-        }
-        
-        .appointment-card-header {
+        .appointment-header {
           display: flex;
           justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 1.2rem;
-          padding-bottom: 1rem;
-          border-bottom: 1px solid #e8e5dd;
-        }
-        
-        .appointment-minister {
-          display: flex;
           align-items: center;
-          gap: 0.75rem;
-        }
-        
-        .minister-icon {
-          font-size: 1.5rem;
-          color: #8b5a2b;
-        }
-        
-        .appointment-minister h4 {
-          margin: 0;
-          color: #2c3e50;
-          font-size: 1.1rem;
-        }
-        
-        .minister-role {
-          color: #5d6d7e;
-          font-size: 0.85rem;
-          display: block;
-          margin-top: 0.25rem;
+          margin-bottom: 1rem;
         }
         
         .status-badge {
-          padding: 0.4rem 1rem;
+          padding: 0.3rem 0.8rem;
           border-radius: 20px;
           font-size: 0.8rem;
           font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
         }
         
         .status-badge.pending {
-          background-color: #fff3cd;
+          background: #fff3cd;
           color: #856404;
-          border: 1px solid #ffeaa7;
         }
         
         .status-badge.confirmed {
-          background-color: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
+          background: #d1ecf1;
+          color: #0c5460;
         }
-        
-        .status-badge.cancelled {
-          background-color: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
-        }
-        
-        .appointment-card-body {
-          margin-bottom: 1.5rem;
-        }
-        
-        .appointment-detail {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 0.8rem;
-          padding: 0.5rem 0;
-        }
-        
-        .appointment-detail:not(:last-child) {
-          border-bottom: 1px solid #f1f3f4;
-        }
-        
-        .detail-label {
-          font-weight: 600;
-          color: #5d6d7e;
-          font-size: 0.9rem;
-        }
-        
-        .detail-value {
-          color: #2c3e50;
-          text-align: right;
-          max-width: 60%;
-          word-break: break-word;
-        }
-        
-        .appointment-card-footer {
-          display: flex;
-          gap: 0.75rem;
-          justify-content: flex-end;
-        }
-        
-        .empty-state {
-          text-align: center;
-          padding: 3rem 2rem;
-          background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
-          border-radius: 12px;
-          border: 2px dashed #cbd5e0;
-          margin: 2rem 0;
-        }
-        
-        .empty-icon {
-          font-size: 4rem;
-          margin-bottom: 1rem;
-          opacity: 0.7;
-          color: #8b5a2b;
-        }
-        
-        .empty-state h3 {
-          color: #2c3e50;
-          margin-bottom: 0.5rem;
-        }
-        
-        .empty-state p {
-          color: #5d6d7e;
-          max-width: 400px;
-          margin: 0 auto;
-        }
-        
-        /* About Section Styles */
+
+        /* About Styles */
         .about-content {
           display: flex;
           flex-direction: column;
           gap: 2rem;
         }
         
-        .about-section {
-          background: #f8f6f0;
-          padding: 1.5rem;
-          border-radius: 10px;
-          border: 1px solid #e8e5dd;
-        }
-        
         .about-section h3 {
           color: #2c3e50;
           margin-bottom: 1rem;
-          padding-bottom: 0.5rem;
-          border-bottom: 2px solid #e0dccf;
         }
         
-        .team-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 1.5rem;
+        .about-section p, .about-section ul {
+          color: #333;
+          line-height: 1.6;
         }
         
-        .team-member-card {
-          background: white;
-          border-radius: 10px;
-          padding: 1.5rem;
+        .about-section ul {
+          padding-left: 1.5rem;
+        }
+        
+        .about-section li {
+          margin-bottom: 0.5rem;
+        }
+
+        /* Tour Styles */
+        .tour-start {
           text-align: center;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-          border: 1px solid #e8e5dd;
-          transition: transform 0.3s ease;
+          padding: 3rem;
         }
         
-        .team-member-card:hover {
-          transform: translateY(-3px);
-        }
-        
-        .member-photo {
-          width: 80px;
-          height: 80px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, #8b5a2b 0%, #c19a6b 100%);
-          margin: 0 auto 1rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 2rem;
-          color: white;
-        }
-        
-        .team-member-card h4 {
-          color: #2c3e50;
-          margin: 0 0 0.25rem 0;
-        }
-        
-        .team-member-card p {
-          color: #5d6d7e;
-          margin: 0;
-          font-size: 0.9rem;
-        }
-        
-        .service-times-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-          gap: 1rem;
-        }
-        
-        .service-time-card {
-          background: white;
-          border-radius: 8px;
-          padding: 1rem;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-          border: 1px solid #e8e5dd;
-        }
-        
-        .service-time-card h4 {
-          color: #2c3e50;
-          margin: 0 0 0.5rem 0;
-          font-size: 1rem;
-        }
-        
-        .service-time-card p {
-          color: #5d6d7e;
-          margin: 0;
-          font-weight: 500;
-        }
-        
-        /* Tour Section Styles */
-        .tour-intro {
-          text-align: center;
-          padding: 2rem;
-        }
-        
-        .tour-placeholder-image {
-          margin-bottom: 1.5rem;
-        }
-        
-        .church-image {
-          font-size: 6rem;
-          color: #8b5a2b;
-          opacity: 0.7;
-        }
-        
-        .tour-intro p {
-          color: #5d6d7e;
-          max-width: 500px;
-          margin: 0 auto 1.5rem;
-          font-size: 1.1rem;
-          line-height: 1.5;
-        }
-        
-        .virtual-tour {
-          margin-top: 1.5rem;
-        }
-        
-        .tour-view {
-          margin-bottom: 1.5rem;
-          text-align: center;
-          background: #f8f6f0;
-          padding: 2rem;
-          border-radius: 12px;
-          border: 1px solid #e8e5dd;
-        }
-        
-        .tour-view h3 {
+        .tour-welcome h3 {
           color: #2c3e50;
           margin-bottom: 1rem;
         }
         
-        .location-image {
-          font-size: 5rem;
-          margin: 1rem 0;
-          color: #8b5a2b;
+        .tour-welcome p {
+          color: #5d6d7e;
+          margin-bottom: 2rem;
+          font-size: 1.1rem;
+          line-height: 1.6;
         }
         
-        .tour-placeholder {
-          height: 300px;
-          background-color: #f8f9fa;
-          border-radius: 8px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 1.5rem;
+        .tour-active {
+          text-align: center;
+        }
+        
+        .tour-location {
+          background: #f8f6f0;
+          border-radius: 12px;
           padding: 2rem;
-          background-color: #f8f6f0;
+          margin-bottom: 2rem;
           border: 1px solid #e8e5dd;
         }
         
-        .tour-controls {
-          display: flex;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-          justify-content: center;
-        }
-        
-        .control-btn {
-          background-color: #f8f6f0;
+        .tour-location h3 {
           color: #2c3e50;
-          border: 1px solid #e8e5dd;
-          padding: 0.7rem 1rem;
-          border-radius: 6px;
-          cursor: pointer;
-          flex: 1;
-          min-width: 120px;
-          transition: all 0.2s ease;
-          font-size: 0.9rem;
+          margin-bottom: 1rem;
         }
         
-        .control-btn:hover, .control-btn.active {
-          background: linear-gradient(135deg, #2c3e50 0%, #4a6b8a 100%);
+        .tour-location p {
+          color: #333;
+          line-height: 1.6;
+          font-size: 1.1rem;
+        }
+        
+        .tour-navigation {
+          display: flex;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-bottom: 2rem;
+        }
+        
+        .tour-nav-btn {
+          background: transparent;
+          color: #4a6b8a;
+          border: 2px solid #4a6b8a;
+          padding: 0.5rem 1rem;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+        
+        .tour-nav-btn:hover {
+          background: #4a6b8a;
           color: white;
         }
         
+        .tour-nav-btn.active {
+          background: #4a6b8a;
+          color: white;
+        }
+
         /* Modal Styles */
         .modal-overlay {
           position: fixed;
@@ -1692,7 +1785,7 @@ const Dashboard = () => {
           left: 0;
           right: 0;
           bottom: 0;
-          background-color: rgba(0, 0, 0, 0.6);
+          background: rgba(0, 0, 0, 0.5);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1702,32 +1795,25 @@ const Dashboard = () => {
         
         .modal-content {
           background: white;
-          border-radius: 16px;
-          padding: 2rem;
-          width: 90%;
-          max-width: 500px;
+          border-radius: 12px;
+          width: 100%;
+          max-width: 600px;
           max-height: 90vh;
           overflow-y: auto;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-        }
-        
-        .modal-content.large {
-          max-width: 700px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
         
         .modal-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 1.5rem;
-          padding-bottom: 1rem;
-          border-bottom: 2px solid #e8e5dd;
+          padding: 1.5rem;
+          border-bottom: 1px solid #e8e5dd;
         }
         
         .modal-header h3 {
-          color: #2c3e50;
           margin: 0;
-          font-size: 1.5rem;
+          color: #2c3e50;
         }
         
         .close-btn {
@@ -1736,120 +1822,69 @@ const Dashboard = () => {
           font-size: 1.5rem;
           cursor: pointer;
           color: #5d6d7e;
-          padding: 0.5rem;
-          border-radius: 50%;
-          transition: background-color 0.2s ease;
-        }
-        
-        .close-btn:hover {
-          background-color: #f7fafc;
-          color: #2c3e50;
+          padding: 0;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         
         .modal-body {
-          margin-bottom: 1.5rem;
-        }
-        
-        .event-detail-item {
-          margin-bottom: 1rem;
-        }
-        
-        .event-detail-item:last-child {
-          margin-bottom: 0;
-        }
-        
-        .detail-label {
-          font-weight: 600;
-          color: #2c3e50;
-          display: block;
-          margin-bottom: 0.25rem;
-        }
-        
-        .detail-value {
-          color: #5d6d7e;
+          padding: 1.5rem;
         }
         
         .modal-footer {
           display: flex;
           gap: 1rem;
           justify-content: flex-end;
-        }
-        
-        /* Form Styles */
-        .appointment-form {
-          display: flex;
-          flex-direction: column;
-          gap: 2rem;
-        }
-        
-        .form-section {
-          background: #f8f6f0;
           padding: 1.5rem;
-          border-radius: 10px;
-          border: 1px solid #e8e5dd;
+          border-top: 1px solid #e8e5dd;
         }
         
-        .form-section h4 {
-          color: #2c3e50;
-          margin: 0 0 1.2rem 0;
-          font-size: 1.1rem;
+        .event-detail-item {
+          display: flex;
+          margin-bottom: 1rem;
+          align-items: flex-start;
+        }
+        
+        .detail-label {
           font-weight: 600;
+          color: #2c3e50;
+          min-width: 100px;
+          margin-right: 1rem;
         }
         
-        .form-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1.2rem;
-          margin-bottom: 1.2rem;
+        .detail-value {
+          color: #333;
+          flex: 1;
         }
         
         .form-group {
-          display: flex;
-          flex-direction: column;
+          margin-bottom: 1.5rem;
         }
         
         .form-group label {
+          display: block;
           margin-bottom: 0.5rem;
           font-weight: 600;
           color: #2c3e50;
-          font-size: 0.9rem;
         }
         
         .form-group input,
         .form-group select,
         .form-group textarea {
-          padding: 0.9rem 1rem;
-          border: 2px solid #e8e5dd;
-          border-radius: 8px;
+          width: 100%;
+          padding: 0.75rem;
+          border: 1px solid #e8e5dd;
+          border-radius: 6px;
           font-size: 1rem;
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-          background: white;
           font-family: inherit;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-          outline: none;
-          border-color: #8b5a2b;
-          box-shadow: 0 0 0 3px rgba(139, 90, 43, 0.1);
         }
         
         .form-group textarea {
           resize: vertical;
-          min-height: 100px;
-        }
-        
-        .form-footer {
-          margin-top: 1rem;
-        }
-        
-        .form-note {
-          color: #5d6d7e;
-          font-size: 0.85rem;
-          text-align: center;
-          margin-bottom: 1.5rem;
-          font-style: italic;
+          min-height: 80px;
         }
         
         /* Responsive Design */
@@ -1865,32 +1900,6 @@ const Dashboard = () => {
           
           .main-content {
             order: 1;
-          }
-          
-          .form-row {
-            grid-template-columns: 1fr;
-          }
-          
-          .appointments-grid {
-            grid-template-columns: 1fr;
-          }
-          
-          .appointment-detail {
-            flex-direction: column;
-            gap: 0.25rem;
-          }
-          
-          .detail-value {
-            text-align: left;
-            max-width: 100%;
-          }
-          
-          .modal-content.large {
-            padding: 1.5rem;
-          }
-          
-          .modal-footer {
-            flex-direction: column;
           }
         }
         
@@ -1926,12 +1935,17 @@ const Dashboard = () => {
             flex-direction: column;
           }
           
-          .team-grid {
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+          .modal-footer {
+            flex-direction: column;
           }
           
-          .service-times-grid {
-            grid-template-columns: 1fr;
+          .tour-navigation {
+            flex-direction: column;
+            align-items: center;
+          }
+          
+          .tour-nav-btn {
+            width: 200px;
           }
         }
       `}</style>
